@@ -7,6 +7,10 @@
  * concurrent queue algorithms. PODC 96.
  */
 
+#include <iostream>
+#include <thread>
+#include <atomic>
+
 namespace lfatomic {
   template<typename T>
     bool compare_and_swap(T** owner, const T* expected, T** desired) {
@@ -56,13 +60,47 @@ class lfqueue {
       }
       head = 0;
       tail = 0;
+      std::cout << "~lfqueue()\n";
     }    
 
     const node *const front() const {
       return head;
     }
 
+    bool pop2() {
+      std::atomic<node*> HEAD{head};
+      std::atomic<node*> TAIL{tail};
+      std::atomic<node*> hd{nullptr};
+      while (1) {
+	hd = HEAD.load();
+	std::atomic<node*> tl{TAIL.load()};
+	std::atomic<node*> nxt{HEAD.load()->next};
+	if (hd == HEAD.load()) {
+	  if (HEAD.load() == TAIL.load()) {
+	    if (nxt.load() == nullptr) {
+	      return false;
+	    }
+	    node* _tl_ = tl.load();
+	    TAIL.compare_exchange_strong(_tl_, nxt.load(),
+		std::memory_order_release,
+		std::memory_order_relaxed); 
+	  } else {
+	    node* _hd_ = hd.load();
+	    if (HEAD.compare_exchange_strong(_hd_, nxt.load(),
+		  std::memory_order_release,
+		  std::memory_order_relaxed)) { 
+	      break;
+	    }
+	  }
+	}
+      }
+      delete hd.load();
+      return true;
+    }
+
     bool pop() {
+      // std::thread::id this_id = std::this_thread::get_id();
+      // std::cout << "thd " << this_id << " in pop\n";
       node* hd=nullptr;
       while (1) {
 	hd = head;
